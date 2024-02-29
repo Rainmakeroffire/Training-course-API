@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from .models import Product, Lesson, Group
+from django.contrib.auth.models import User
 from .serializers import ProductSerializer, LessonSerializer
 
 
@@ -99,3 +100,45 @@ def get_available_lessons(request, product_id):
         else:
             # Возврат JSON-ответа с ошибкой доступа
             return JsonResponse({'error': 'Вы не имеете доступа к этому курсу.'}, status=403)
+
+
+def get_stats(request):
+    """
+    API для получения статистики по продуктам на платформе.
+
+    Возвращает список всех продуктов на платформе вместе с информацией о количестве учеников,
+    проценте заполненности групп и проценте приобретения продукта.
+
+    """
+    if request.method == 'GET':
+        # Получаем все продукты и колчество пользователей на платформе, создаём список статистики
+        products = Product.objects.prefetch_related('groups__students', 'allowed_users').all()
+        total_users = User.objects.count()
+        stats = []
+
+        for product in products:
+            # Получаем количество учеников, занимающихся на продукте
+            student_count = product.allowed_users.count()
+
+            # Рассчитываем процент заполненности групп
+            total_group_capacity = product.groups.count() * product.max_group_capacity
+            actual_occupancy = sum(group.students.count() for group in product.groups.all())
+            occupancy_rate = round((actual_occupancy / total_group_capacity) * 100, 2) if total_group_capacity > 0 \
+                else 0
+
+            # Рассчитываем процент приобретения продукта
+            purchase_rate = round((student_count / total_users) * 100, 2) if total_users > 0 else 0
+
+            # Собираем информацию о статистике по продукту
+            product_stats = {
+                'id': product.id,
+                'name': product.name,
+                'student_count': student_count,
+                'occupancy_rate': occupancy_rate,
+                'purchase_rate': purchase_rate,
+            }
+
+            # Добавляем информацию о продукте в список статистики
+            stats.append(product_stats)
+
+        return JsonResponse(stats, safe=False)
